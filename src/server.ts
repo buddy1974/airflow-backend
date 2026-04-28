@@ -18,6 +18,9 @@ import { incidentRoutes } from './routes/incidents';
 import { medicationRoutes } from './routes/medications';
 import { monitoringRoutes } from './routes/monitoring';
 import { deviceRoutes } from './routes/devices';
+import { handoverRoutes } from './routes/handover';
+import { financeRoutes } from './routes/finance';
+import { rotaRoutes } from './routes/rotas';
 import { seedLocation } from './scripts/seedLocation';
 import { seedPatients } from './scripts/seedPatients';
 import { seedDevices } from './scripts/seedDevices';
@@ -92,6 +95,9 @@ export async function buildServer() {
   fastify.register(medicationRoutes,  { prefix: '/api' });
   fastify.register(monitoringRoutes,  { prefix: '/api' });
   fastify.register(deviceRoutes,      { prefix: '/api' });
+  fastify.register(handoverRoutes,    { prefix: '/api' });
+  fastify.register(financeRoutes,     { prefix: '/api' });
+  fastify.register(rotaRoutes,        { prefix: '/api' });
 
   fastify.setErrorHandler((error, _request, reply) => {
     fastify.log.error(error);

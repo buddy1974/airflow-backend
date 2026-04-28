@@ -126,10 +126,12 @@ model User {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  staff         Staff?
-  assignedTasks TaskAssignment[]
-  activityLogs  ActivityLog[]
-  tokens        RefreshToken[]
+  staff          Staff?
+  assignedTasks  TaskAssignment[]
+  activityLogs   ActivityLog[]
+  tokens         RefreshToken[]
+  payrollRecords PayrollRecord[]
+  shifts         Shift[]
 
   @@map("users")
 }
@@ -264,6 +266,9 @@ model Patient {
   monitoringEntries MonitoringEntry[]
   monitoringAlerts  MonitoringAlert[]
   devices           Device[]
+  handovers         Handover[]
+  invoices          Invoice[]
+  shifts            Shift[]
 
   @@map("patients")
 }
@@ -446,4 +451,152 @@ model DeviceCheck {
   createdAt       DateTime @default(now())
 
   @@map("device_checks")
+}
+
+// ─── PHASES 5, 6, 7 ──────────────────────────────────────────────────────────
+
+enum UebergabeStatus {
+  ENTWURF
+  ABGESCHLOSSEN
+  QUITTIERT
+}
+
+enum InvoiceStatus {
+  ENTWURF
+  VERSENDET
+  BEZAHLT
+  UEBERFAELLIG
+  STORNIERT
+}
+
+enum TransactionTyp {
+  EINNAHME
+  AUSGABE
+}
+
+enum PayrollStatus {
+  AUSSTEHEND
+  GENEHMIGT
+  AUSGEZAHLT
+}
+
+enum RotaStatus {
+  ENTWURF
+  VEROEFFENTLICHT
+}
+
+enum ShiftStatus {
+  GEPLANT
+  AKTIV
+  ABGESCHLOSSEN
+  ABWESEND
+}
+
+model Handover {
+  id              String          @id @default(cuid())
+  patientId       String
+  patient         Patient         @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  schicht         Schicht
+  schichtDatum    DateTime
+  erstelltVonId   String
+  quittiertvonId  String?
+  status          UebergabeStatus @default(ENTWURF)
+  zusammenfassung String
+  offenePunkte    String?
+  massnahmen      String?
+  dringend        Boolean         @default(false)
+  quittierAtAt    DateTime?
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+
+  @@map("handovers")
+}
+
+model Invoice {
+  id                String        @id @default(cuid())
+  patientId         String
+  patient           Patient       @relation(fields: [patientId], references: [id])
+  rechnungsnummer   String        @unique
+  betrag            Float
+  mwst              Float         @default(0)
+  status            InvoiceStatus @default(ENTWURF)
+  leistungsdatum    DateTime
+  faelligkeitsdatum DateTime
+  bezahltAm         DateTime?
+  kostentraeger     String?
+  beschreibung      String?
+  createdById       String
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
+
+  @@map("invoices")
+}
+
+model FinanceTransaction {
+  id           String         @id @default(cuid())
+  typ          TransactionTyp
+  betrag       Float
+  beschreibung String
+  kategorie    String?
+  datum        DateTime
+  createdById  String
+  createdAt    DateTime       @default(now())
+  updatedAt    DateTime       @updatedAt
+
+  @@map("finance_transactions")
+}
+
+model PayrollRecord {
+  id             String        @id @default(cuid())
+  userId         String
+  user           User          @relation(fields: [userId], references: [id])
+  monat          Int
+  jahr           Int
+  grundgehalt    Float
+  zuschlaege     Float         @default(0)
+  abzuege        Float         @default(0)
+  netto          Float
+  status         PayrollStatus @default(AUSSTEHEND)
+  genehmigtvonId String?
+  genehmigAt     DateTime?
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  @@map("payroll_records")
+}
+
+model Rota {
+  id            String     @id @default(cuid())
+  wocheVom      DateTime
+  wocheBis      DateTime
+  status        RotaStatus @default(ENTWURF)
+  erstelltVonId String
+  createdAt     DateTime   @default(now())
+  updatedAt     DateTime   @updatedAt
+
+  shifts Shift[]
+
+  @@map("rotas")
+}
+
+model Shift {
+  id          String      @id @default(cuid())
+  rotaId      String
+  rota        Rota        @relation(fields: [rotaId], references: [id], onDelete: Cascade)
+  userId      String
+  user        User        @relation(fields: [userId], references: [id])
+  patientId   String
+  patient     Patient     @relation(fields: [patientId], references: [id])
+  schicht     Schicht
+  datum       DateTime
+  startzeit   DateTime
+  endzeit     DateTime
+  status      ShiftStatus @default(GEPLANT)
+  clockInAt   DateTime?
+  clockOutAt  DateTime?
+  bemerkungen String?
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+
+  @@map("shifts")
 }
