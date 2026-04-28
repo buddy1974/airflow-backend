@@ -1,95 +1,25 @@
 import { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { z } from 'zod';
-import {
-  AlertLevel,
-  Beatmungsmodus,
-  Bewusstseinsstatus,
-  LagerungsTyp,
-  TrachealSekret,
-} from '@prisma/client';
+import { AlertLevel, Beatmungsmodus, Bewusstseinsstatus, LagerungsTyp, TrachealSekret } from '@prisma/client';
 import { authenticate, requireRole } from '../middleware/authMiddleware';
 import prisma from '../db/prisma';
-import { getOpenAI, hasOpenAI } from '../lib/openai';
+import { checkAlerts, AlertDetail } from '../lib/alertEngine';
 
-// ─── Alert threshold engine ───────────────────────────────────────────────────
-
-interface AlertBreach {
-  [key: string]:  string;
-  parameter:      string;
-  wert:           string;
-  schwellenwert:  string;
-  alertLevel:     string;
-}
-
-function detectAlerts(data: {
-  herzfrequenz:   number;
-  atemfrequenz:   number;
-  blutdruckSys:   number;
-  spo2:           number;
-  temperatur:     number;
-  trachealSekret?: TrachealSekret;
-  bewusstsein:    Bewusstseinsstatus;
-}): AlertBreach[] {
-  const b: AlertBreach[] = [];
-
-  if (data.spo2 < 90) {
-    b.push({ parameter: 'spo2', wert: `${data.spo2}%`, schwellenwert: '< 90%', alertLevel: 'ROT' });
-  } else if (data.spo2 < 94) {
-    b.push({ parameter: 'spo2', wert: `${data.spo2}%`, schwellenwert: '< 94%', alertLevel: 'GELB' });
-  }
-
-  if (data.herzfrequenz < 50 || data.herzfrequenz > 130) {
-    b.push({ parameter: 'herzfrequenz', wert: `${data.herzfrequenz}/min`, schwellenwert: '< 50 oder > 130/min', alertLevel: 'ROT' });
-  } else if (data.herzfrequenz < 55 || data.herzfrequenz > 120) {
-    b.push({ parameter: 'herzfrequenz', wert: `${data.herzfrequenz}/min`, schwellenwert: '< 55 oder > 120/min', alertLevel: 'GELB' });
-  }
-
-  if (data.atemfrequenz < 8 || data.atemfrequenz > 25) {
-    b.push({ parameter: 'atemfrequenz', wert: `${data.atemfrequenz}/min`, schwellenwert: '< 8 oder > 25/min', alertLevel: 'ROT' });
-  }
-
-  if (data.blutdruckSys < 90 || data.blutdruckSys > 180) {
-    b.push({ parameter: 'blutdruckSys', wert: `${data.blutdruckSys} mmHg`, schwellenwert: '< 90 oder > 180 mmHg', alertLevel: 'ROT' });
-  } else if (data.blutdruckSys < 100 || data.blutdruckSys > 160) {
-    b.push({ parameter: 'blutdruckSys', wert: `${data.blutdruckSys} mmHg`, schwellenwert: '< 100 oder > 160 mmHg', alertLevel: 'GELB' });
-  }
-
-  if (data.temperatur > 39.5) {
-    b.push({ parameter: 'temperatur', wert: `${data.temperatur}°C`, schwellenwert: '> 39.5°C', alertLevel: 'ROT' });
-  } else if (data.temperatur > 38.5) {
-    b.push({ parameter: 'temperatur', wert: `${data.temperatur}°C`, schwellenwert: '> 38.5°C', alertLevel: 'GELB' });
-  }
-
-  if (data.trachealSekret === TrachealSekret.BLUTIG) {
-    b.push({ parameter: 'trachealSekret', wert: 'BLUTIG', schwellenwert: 'BLUTIG', alertLevel: 'ROT' });
-  } else if (data.trachealSekret === TrachealSekret.GRUENLICH) {
-    b.push({ parameter: 'trachealSekret', wert: 'GRUENLICH', schwellenwert: 'GRUENLICH', alertLevel: 'GELB' });
-  }
-
-  if (data.bewusstsein === Bewusstseinsstatus.KOMATOEES) {
-    b.push({ parameter: 'bewusstsein', wert: 'KOMATOEES', schwellenwert: 'KOMATOEES', alertLevel: 'ROT' });
-  } else if (data.bewusstsein === Bewusstseinsstatus.SOMNOLENT) {
-    b.push({ parameter: 'bewusstsein', wert: 'SOMNOLENT', schwellenwert: 'SOMNOLENT', alertLevel: 'GELB' });
-  }
-
-  return b;
-}
-
-function highestLevel(breaches: AlertBreach[]): AlertLevel {
-  if (breaches.some(b => b.alertLevel === AlertLevel.ROT))  return AlertLevel.ROT;
-  if (breaches.some(b => b.alertLevel === AlertLevel.GELB)) return AlertLevel.GELB;
-  return AlertLevel.GRUEN;
-}
+// ─── n8n webhook (fire-and-forget) ───────────────────────────────────────────
 
 function fireN8nWebhook(payload: {
-  entryId: string; patientId: string; alertLevel: string; breaches: AlertBreach[];
-}) {
+  type:       string;
+  patientId:  string;
+  entryId:    string;
+  alerts:     AlertDetail[];
+  recordedAt: Date;
+}): void {
   const url = process.env.N8N_WEBHOOK_URL;
   if (!url) return;
   fetch(url, {
     method:  'POST',
     headers: { 'Content-Type': 'application/json' },
-    body:    JSON.stringify({ monitoring: payload, timestamp: new Date() }),
+    body:    JSON.stringify(payload),
   }).catch((err) => console.error('[monitoring] n8n webhook failed:', err));
 }
 
@@ -120,73 +50,51 @@ const CreateEntrySchema = z.object({
   bemerkungen:            z.string().optional(),
 });
 
+// ─── Time window helpers (UTC) ────────────────────────────────────────────────
+
+function todayWindow(): { gte: Date; lte: Date } {
+  const now = new Date();
+  const gte = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+  return { gte, lte: now };
+}
+
+function shiftWindow(schicht: 'TAG' | 'NACHT'): { gte: Date; lte: Date } {
+  const now = new Date();
+  const y = now.getUTCFullYear();
+  const m = now.getUTCMonth();
+  const d = now.getUTCDate();
+
+  if (schicht === 'TAG') {
+    return {
+      gte: new Date(Date.UTC(y, m, d,     6, 0, 0)),
+      lte: new Date(Date.UTC(y, m, d,    18, 0, 0)),
+    };
+  }
+  // NACHT: yesterday 18:00 → today 06:00
+  const prev = new Date(Date.UTC(y, m, d - 1));
+  return {
+    gte: new Date(Date.UTC(prev.getUTCFullYear(), prev.getUTCMonth(), prev.getUTCDate(), 18, 0, 0)),
+    lte: new Date(Date.UTC(y, m, d, 6, 0, 0)),
+  };
+}
+
+function currentShift(): 'TAG' | 'NACHT' {
+  const h = new Date().getUTCHours();
+  return h >= 6 && h < 18 ? 'TAG' : 'NACHT';
+}
+
+const TAG_HOURS   = Array.from({ length: 12 }, (_, i) => i + 6);          // 6..17
+const NACHT_HOURS = [...Array.from({ length: 6 }, (_, i) => i + 18),      // 18..23
+                      ...Array.from({ length: 6 }, (_, i) => i)];          // 0..5
+
 // ─── Routes ───────────────────────────────────────────────────────────────────
 
 export async function monitoringRoutes(fastify: FastifyInstance): Promise<void> {
 
-  // ── Entries ──────────────────────────────────────────────────────────────
-
-  // GET /api/monitoring/entries/patient/:patientId/latest
-  fastify.get<{ Params: { patientId: string } }>(
-    '/monitoring/entries/patient/:patientId/latest',
-    { preHandler: [authenticate] },
-    async (request: FastifyRequest<{ Params: { patientId: string } }>, reply: FastifyReply) => {
-      const entry = await prisma.monitoringEntry.findFirst({
-        where:   { patientId: request.params.patientId },
-        orderBy: { recordedAt: 'desc' },
-        include: { alerts: true },
-      });
-      return reply.code(200).send({ success: true, entry });
-    }
-  );
-
-  // GET /api/monitoring/entries/patient/:patientId
-  fastify.get<{ Params: { patientId: string } }>(
-    '/monitoring/entries/patient/:patientId',
-    { preHandler: [authenticate] },
-    async (request: FastifyRequest<{ Params: { patientId: string } }>, reply: FastifyReply) => {
-      const { from, to, page, limit } = request.query as {
-        from?: string; to?: string; page?: string; limit?: string;
-      };
-
-      const take = Math.min(Number(limit) || 24, 200);
-      const skip = (Math.max(Number(page) || 1, 1) - 1) * take;
-
-      const where: Record<string, unknown> = { patientId: request.params.patientId };
-      if (from || to) {
-        where.recordedAt = {
-          ...(from && { gte: new Date(from) }),
-          ...(to   && { lte: new Date(to) }),
-        };
-      }
-
-      const [entries, total] = await Promise.all([
-        prisma.monitoringEntry.findMany({ where, include: { alerts: true }, skip, take, orderBy: { recordedAt: 'desc' } }),
-        prisma.monitoringEntry.count({ where }),
-      ]);
-
-      return reply.code(200).send({ success: true, entries, total, page: Math.max(Number(page) || 1, 1), limit: take });
-    }
-  );
-
-  // GET /api/monitoring/entries/:id
-  fastify.get<{ Params: { id: string } }>(
-    '/monitoring/entries/:id',
-    { preHandler: [authenticate] },
-    async (request: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) => {
-      const entry = await prisma.monitoringEntry.findUnique({
-        where:   { id: request.params.id },
-        include: { alerts: true },
-      });
-      if (!entry) return reply.code(404).send({ success: false, error: 'Entry not found' });
-      return reply.code(200).send({ success: true, entry });
-    }
-  );
-
-  // POST /api/monitoring/entries
+  // POST /api/monitoring/entry
   fastify.post(
-    '/monitoring/entries',
-    { preHandler: [authenticate] },
+    '/monitoring/entry',
+    { preHandler: [authenticate, requireRole(['ADMIN', 'PFLEGEKRAFT'])] },
     async (request: FastifyRequest, reply: FastifyReply) => {
       const parsed = CreateEntrySchema.safeParse(request.body);
       if (!parsed.success) {
@@ -194,140 +102,137 @@ export async function monitoringRoutes(fastify: FastifyInstance): Promise<void> 
       }
 
       const { recordedAt, ...rest } = parsed.data;
-      const breaches    = detectAlerts(rest);
-      const alertLevel  = highestLevel(breaches);
-      const alertTriggered = breaches.length > 0;
+      const alertResult = checkAlerts({
+        spo2:         rest.spo2,
+        herzfrequenz: rest.herzfrequenz,
+        atemfrequenz: rest.atemfrequenz,
+        blutdruckSys: rest.blutdruckSys,
+        temperatur:   rest.temperatur,
+        spitzendruck: rest.spitzendruck,
+      });
 
       const entry = await prisma.monitoringEntry.create({
         data: {
           ...rest,
-          recordedById: request.user!.id,
-          recordedAt:   new Date(recordedAt),
-          alertLevel,
-          alertTriggered,
+          recordedById:   request.user!.id,
+          recordedAt:     new Date(recordedAt),
+          alertLevel:     alertResult.alertLevel,
+          alertTriggered: alertResult.alertTriggered,
         },
       });
 
-      const alerts = await Promise.all(
-        breaches.map(breach =>
-          prisma.monitoringAlert.create({
-            data: {
-              patientId:     entry.patientId,
-              entryId:       entry.id,
-              parameter:     breach.parameter,
-              wert:          breach.wert,
-              schwellenwert: breach.schwellenwert,
-              alertLevel:    breach.alertLevel as AlertLevel,
-            },
-          })
-        )
-      );
+      if (alertResult.alerts.length > 0) {
+        await Promise.all(
+          alertResult.alerts.map(alert =>
+            prisma.monitoringAlert.create({
+              data: {
+                patientId:     entry.patientId,
+                entryId:       entry.id,
+                parameter:     alert.parameter,
+                wert:          alert.wert,
+                schwellenwert: alert.schwellenwert,
+                alertLevel:    alert.alertLevel,
+              },
+            })
+          )
+        );
+      }
 
-      if (alertLevel === AlertLevel.ROT) {
-        await prisma.activityLog.create({
-          data: {
-            userId:   request.user!.id,
-            action:   'ROT_ALERT_TRIGGERED',
-            entity:   'MonitoringEntry',
-            entityId: entry.id,
-            metadata: { patientId: entry.patientId, breaches },
-          },
+      if (alertResult.alertLevel === AlertLevel.ROT) {
+        fireN8nWebhook({
+          type:       'MONITORING_ALERT_ROT',
+          patientId:  entry.patientId,
+          entryId:    entry.id,
+          alerts:     alertResult.alerts,
+          recordedAt: entry.recordedAt,
         });
-        fireN8nWebhook({ entryId: entry.id, patientId: entry.patientId, alertLevel: 'ROT', breaches });
       }
 
-      return reply.code(201).send({ success: true, entry: { ...entry, alerts } });
+      return reply.code(201).send({ success: true, data: { entry, alerts: alertResult.alerts } });
     }
   );
 
-  // POST /api/monitoring/entries/:id/analyse — OpenAI clinical assessment
-  fastify.post<{ Params: { id: string } }>(
-    '/monitoring/entries/:id/analyse',
+  // GET /api/monitoring/patient/:patientId/today
+  fastify.get<{ Params: { patientId: string } }>(
+    '/monitoring/patient/:patientId/today',
     { preHandler: [authenticate] },
-    async (request: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) => {
-      if (!hasOpenAI()) {
-        return reply.code(503).send({ success: false, error: 'AI analysis not available' });
-      }
-
-      const entry = await prisma.monitoringEntry.findUnique({
-        where:   { id: request.params.id },
+    async (request: FastifyRequest<{ Params: { patientId: string } }>, reply: FastifyReply) => {
+      const window = todayWindow();
+      const entries = await prisma.monitoringEntry.findMany({
+        where:   { patientId: request.params.patientId, recordedAt: window },
         include: { alerts: true },
+        orderBy: { recordedAt: 'asc' },
       });
-      if (!entry) return reply.code(404).send({ success: false, error: 'Entry not found' });
-
-      const completion = await getOpenAI().chat.completions.create({
-        model:      'gpt-4o',
-        max_tokens: 400,
-        messages: [
-          {
-            role:    'system',
-            content: 'Du bist ein klinisches Entscheidungshilfssystem für Beatmungspflege (ICU-Ambulanz). ' +
-                     'Analysiere die Monitoring-Daten kurz und präzise auf Deutsch. ' +
-                     'Maximal 5 Sätze. Fokus: Auffälligkeiten, klinische Relevanz, empfohlene Maßnahmen.',
-          },
-          {
-            role: 'user',
-            content: JSON.stringify({
-              vitalzeichen: {
-                herzfrequenz: entry.herzfrequenz,
-                atemfrequenz: entry.atemfrequenz,
-                blutdruckSys: entry.blutdruckSys,
-                blutdruckDia: entry.blutdruckDia,
-                spo2:         entry.spo2,
-                temperatur:   entry.temperatur,
-              },
-              beatmung: {
-                modus:          entry.beatmungsmodus,
-                atemzugvolumen: entry.atemzugvolumen,
-                peep:           entry.peep,
-                fio2:           entry.fio2,
-                spitzendruck:   entry.spitzendruck,
-              },
-              pflege: {
-                bewusstsein:            entry.bewusstsein,
-                trachealSekret:         entry.trachealSekret,
-                absaugungDurchgefuehrt: entry.absaugungDurchgefuehrt,
-                cuffDruck:              entry.cuffDruck,
-                lagerung:               entry.lagerung,
-              },
-              alertLevel:   entry.alertLevel,
-              aktiveAlerts: entry.alerts.map(a => ({
-                parameter: a.parameter,
-                wert:      a.wert,
-                level:     a.alertLevel,
-              })),
-            }),
-          },
-        ],
-      });
-
-      const analyse = completion.choices[0]?.message?.content ?? '';
-      return reply.code(200).send({ success: true, analyse });
+      return reply.code(200).send({ success: true, entries });
     }
   );
 
-  // ── Alerts ───────────────────────────────────────────────────────────────
+  // GET /api/monitoring/patient/:patientId/shift?schicht=TAG|NACHT
+  fastify.get<{ Params: { patientId: string } }>(
+    '/monitoring/patient/:patientId/shift',
+    { preHandler: [authenticate] },
+    async (request: FastifyRequest<{ Params: { patientId: string } }>, reply: FastifyReply) => {
+      const { schicht } = request.query as { schicht?: string };
+      if (schicht !== 'TAG' && schicht !== 'NACHT') {
+        return reply.code(400).send({ success: false, error: 'schicht must be TAG or NACHT' });
+      }
+      const window = shiftWindow(schicht);
+      const entries = await prisma.monitoringEntry.findMany({
+        where:   { patientId: request.params.patientId, recordedAt: window },
+        include: { alerts: true },
+        orderBy: { recordedAt: 'asc' },
+      });
+      return reply.code(200).send({ success: true, entries });
+    }
+  );
 
-  // GET /api/monitoring/alerts/unacknowledged — static, registered before /:id
+  // GET /api/monitoring/patient/:patientId/history?from=ISO&to=ISO
+  fastify.get<{ Params: { patientId: string } }>(
+    '/monitoring/patient/:patientId/history',
+    { preHandler: [authenticate] },
+    async (request: FastifyRequest<{ Params: { patientId: string } }>, reply: FastifyReply) => {
+      const { from, to } = request.query as { from?: string; to?: string };
+      if (!from || !to) {
+        return reply.code(400).send({ success: false, error: 'from and to query params are required' });
+      }
+      const entries = await prisma.monitoringEntry.findMany({
+        where:   { patientId: request.params.patientId, recordedAt: { gte: new Date(from), lte: new Date(to) } },
+        include: { alerts: true },
+        orderBy: { recordedAt: 'asc' },
+      });
+      return reply.code(200).send({ success: true, entries });
+    }
+  );
+
+  // GET /api/monitoring/patient/:patientId/missing
+  fastify.get<{ Params: { patientId: string } }>(
+    '/monitoring/patient/:patientId/missing',
+    { preHandler: [authenticate] },
+    async (request: FastifyRequest<{ Params: { patientId: string } }>, reply: FastifyReply) => {
+      const schicht = currentShift();
+      const window  = shiftWindow(schicht);
+      const entries = await prisma.monitoringEntry.findMany({
+        where:  { patientId: request.params.patientId, recordedAt: window },
+        select: { recordedAt: true },
+      });
+      const coveredHours = new Set(entries.map(e => e.recordedAt.getUTCHours()));
+      const expectedHours = schicht === 'TAG' ? TAG_HOURS : NACHT_HOURS;
+      const missingHours  = expectedHours.filter(h => !coveredHours.has(h));
+      return reply.code(200).send({ success: true, data: { schicht, missingHours } });
+    }
+  );
+
+  // GET /api/monitoring/alerts/open — static segment, registered before /:id
   fastify.get(
-    '/monitoring/alerts/unacknowledged',
-    { preHandler: [authenticate, requireRole(['ADMIN'])] },
+    '/monitoring/alerts/open',
+    { preHandler: [authenticate] },
     async (_request: FastifyRequest, reply: FastifyReply) => {
       const alerts = await prisma.monitoringAlert.findMany({
         where:   { acknowledgedAt: null },
-        orderBy: { createdAt: 'desc' },
-      });
-      return reply.code(200).send({ success: true, alerts });
-    }
-  );
-
-  // GET /api/monitoring/alerts/patient/:patientId
-  fastify.get<{ Params: { patientId: string } }>(
-    '/monitoring/alerts/patient/:patientId',
-    { preHandler: [authenticate] },
-    async (request: FastifyRequest<{ Params: { patientId: string } }>, reply: FastifyReply) => {
-      const alerts = await prisma.monitoringAlert.findMany({
-        where:   { patientId: request.params.patientId, acknowledgedAt: null },
+        include: {
+          patient: { select: { id: true, vorname: true, nachname: true } },
+          entry:   { select: { recordedAt: true, alertLevel: true } },
+        },
         orderBy: { createdAt: 'desc' },
       });
       return reply.code(200).send({ success: true, alerts });
@@ -337,7 +242,7 @@ export async function monitoringRoutes(fastify: FastifyInstance): Promise<void> 
   // PUT /api/monitoring/alerts/:id/acknowledge
   fastify.put<{ Params: { id: string } }>(
     '/monitoring/alerts/:id/acknowledge',
-    { preHandler: [authenticate] },
+    { preHandler: [authenticate, requireRole(['ADMIN'])] },
     async (request: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) => {
       try {
         const alert = await prisma.monitoringAlert.update({
