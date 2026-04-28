@@ -16,6 +16,7 @@ import { patientRoutes } from './routes/patients';
 import { carePlanRoutes } from './routes/carePlans';
 import { incidentRoutes } from './routes/incidents';
 import { medicationRoutes } from './routes/medications';
+import { monitoringRoutes } from './routes/monitoring';
 import { seedLocation } from './scripts/seedLocation';
 import { seedPatients } from './scripts/seedPatients';
 
@@ -86,7 +87,8 @@ export async function buildServer() {
   fastify.register(patientRoutes,    { prefix: '/api' });
   fastify.register(carePlanRoutes,   { prefix: '/api' });
   fastify.register(incidentRoutes,   { prefix: '/api' });
-  fastify.register(medicationRoutes, { prefix: '/api' });
+  fastify.register(medicationRoutes,  { prefix: '/api' });
+  fastify.register(monitoringRoutes,  { prefix: '/api' });
 
   fastify.setErrorHandler((error, _request, reply) => {
     fastify.log.error(error);
