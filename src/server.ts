@@ -17,8 +17,10 @@ import { carePlanRoutes } from './routes/carePlans';
 import { incidentRoutes } from './routes/incidents';
 import { medicationRoutes } from './routes/medications';
 import { monitoringRoutes } from './routes/monitoring';
+import { deviceRoutes } from './routes/devices';
 import { seedLocation } from './scripts/seedLocation';
 import { seedPatients } from './scripts/seedPatients';
+import { seedDevices } from './scripts/seedDevices';
 
 import { FastifyRequest } from 'fastify';
 
@@ -89,6 +91,7 @@ export async function buildServer() {
   fastify.register(incidentRoutes,   { prefix: '/api' });
   fastify.register(medicationRoutes,  { prefix: '/api' });
   fastify.register(monitoringRoutes,  { prefix: '/api' });
+  fastify.register(deviceRoutes,      { prefix: '/api' });
 
   fastify.setErrorHandler((error, _request, reply) => {
     fastify.log.error(error);
@@ -108,6 +111,7 @@ async function start() {
     console.log('AIRFLOW BACKEND RUNNING ON PORT:', port);
     await seedLocation();
     await seedPatients();
+    await seedDevices();
   } catch (err: any) {
     if (err.code === 'EADDRINUSE') {
       console.error(`PORT ${port} already in use`);

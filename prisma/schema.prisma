@@ -202,6 +202,7 @@ model Location {
   staff    Staff[]
   tasks    Task[]
   patients Patient[]
+  devices  Device[]
 
   @@map("locations")
 }
@@ -262,6 +263,7 @@ model Patient {
   medications       Medication[]
   monitoringEntries MonitoringEntry[]
   monitoringAlerts  MonitoringAlert[]
+  devices           Device[]
 
   @@map("patients")
 }
@@ -337,6 +339,24 @@ model Medication {
   @@map("medications")
 }
 
+// ─── PHASE 4 ─────────────────────────────────────────────────────────────────
+
+enum DeviceTyp {
+  BEATMUNG
+  ABSAUGUNG
+  SAUERSTOFF
+  MONITORING
+  ERNAEHRUNG
+  SONSTIGES
+}
+
+enum DeviceStatus {
+  AKTIV
+  WARTUNG
+  DEFEKT
+  EINGELAGERT
+}
+
 // ─── PHASE 3 ─────────────────────────────────────────────────────────────────
 
 model MonitoringEntry {
@@ -390,4 +410,40 @@ model MonitoringAlert {
   createdAt        DateTime        @default(now())
 
   @@map("monitoring_alerts")
+}
+
+model Device {
+  id                String       @id @default(cuid())
+  bezeichnung       String
+  hersteller        String?
+  modell            String?
+  seriennummer      String?      @unique
+  typ               DeviceTyp
+  status            DeviceStatus @default(AKTIV)
+  anschaffungsdatum DateTime?
+  naechsteWartung   DateTime?
+  patientId         String?
+  patient           Patient?     @relation(fields: [patientId], references: [id])
+  locationId        String?
+  location          Location?    @relation(fields: [locationId], references: [id])
+  bemerkungen       String?
+  createdAt         DateTime     @default(now())
+  updatedAt         DateTime     @updatedAt
+
+  checks DeviceCheck[]
+
+  @@map("devices")
+}
+
+model DeviceCheck {
+  id              String   @id @default(cuid())
+  deviceId        String
+  device          Device   @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  checkedById     String
+  checkedAt       DateTime @default(now())
+  funktionsfaehig Boolean  @default(true)
+  bemerkungen     String?
+  createdAt       DateTime @default(now())
+
+  @@map("device_checks")
 }
