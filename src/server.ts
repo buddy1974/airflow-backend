@@ -89,15 +89,16 @@ export async function buildServer() {
 
 async function start() {
   const fastify = await buildServer();
-  const PORT = process.env.PORT ? Number(process.env.PORT) : 3000;
+  const port = Number(process.env.PORT) || 3000;
+  const host = process.env.HOST || '0.0.0.0';
 
   try {
-    await fastify.listen({ port: PORT, host: '0.0.0.0' });
-    console.log('AIRFLOW BACKEND RUNNING ON PORT:', PORT);
+    await fastify.listen({ port, host });
+    console.log('AIRFLOW BACKEND RUNNING ON PORT:', port);
     await seedLocation();
   } catch (err: any) {
     if (err.code === 'EADDRINUSE') {
-      console.error(`PORT ${PORT} already in use`);
+      console.error(`PORT ${port} already in use`);
       process.exit(1);
     }
     fastify.log.error(err);
