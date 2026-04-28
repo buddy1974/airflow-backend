@@ -81,6 +81,39 @@ enum MedicationRoute {
   TOPISCH
 }
 
+enum AlertLevel {
+  GRUEN
+  GELB
+  ROT
+}
+
+enum Schicht {
+  TAG
+  NACHT
+}
+
+enum Bewusstseinsstatus {
+  WACH
+  SCHLAEFRIG
+  SOMNOLENT
+  KOMATOEES
+}
+
+enum LagerungsTyp {
+  RUECKENLAGE
+  GRAD_30
+  GRAD_45
+  SEITENLAGE_L
+  SEITENLAGE_R
+}
+
+enum TrachealSekret {
+  KLAR
+  GELBLICH
+  GRUENLICH
+  BLUTIG
+}
+
 // ─── MODELS ──────────────────────────────────────────────────────────────────
 
 model User {
@@ -224,9 +257,11 @@ model Patient {
   createdAt          DateTime      @default(now())
   updatedAt          DateTime      @updatedAt
 
-  carePlans   CarePlan[]
-  incidents   Incident[]
-  medications Medication[]
+  carePlans         CarePlan[]
+  incidents         Incident[]
+  medications       Medication[]
+  monitoringEntries MonitoringEntry[]
+  monitoringAlerts  MonitoringAlert[]
 
   @@map("patients")
 }
@@ -300,4 +335,59 @@ model Medication {
   updatedAt        DateTime        @updatedAt
 
   @@map("medications")
+}
+
+// ─── PHASE 3 ─────────────────────────────────────────────────────────────────
+
+model MonitoringEntry {
+  id                     String             @id @default(cuid())
+  patientId              String
+  patient                Patient            @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  recordedById           String
+  recordedAt             DateTime
+  herzfrequenz           Int
+  atemfrequenz           Int
+  blutdruckSys           Int
+  blutdruckDia           Int
+  spo2                   Float
+  temperatur             Float
+  bewusstsein            Bewusstseinsstatus
+  beatmungsmodus         Beatmungsmodus
+  atemzugvolumen         Int?
+  peep                   Float?
+  fio2                   Float?
+  spitzendruck           Float?
+  trachealSekret         TrachealSekret?
+  absaugungDurchgefuehrt Boolean            @default(false)
+  cuffDruck              Float?
+  lagerung               LagerungsTyp
+  lagerungswechsel       Boolean            @default(false)
+  ernaehrung             String?
+  ausscheidung           String?
+  bemerkungen            String?
+  alertLevel             AlertLevel         @default(GRUEN)
+  alertTriggered         Boolean            @default(false)
+  createdAt              DateTime           @default(now())
+  updatedAt              DateTime           @updatedAt
+
+  alerts MonitoringAlert[]
+
+  @@map("monitoring_entries")
+}
+
+model MonitoringAlert {
+  id               String          @id @default(cuid())
+  patientId        String
+  patient          Patient         @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  entryId          String
+  entry            MonitoringEntry @relation(fields: [entryId], references: [id], onDelete: Cascade)
+  parameter        String
+  wert             String
+  schwellenwert    String
+  alertLevel       AlertLevel
+  acknowledgedAt   DateTime?
+  acknowledgedById String?
+  createdAt        DateTime        @default(now())
+
+  @@map("monitoring_alerts")
 }
