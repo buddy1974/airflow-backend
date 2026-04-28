@@ -30,6 +30,57 @@ enum TaskPriority {
   URGENT
 }
 
+enum PatientStatus {
+  AKTIV
+  PAUSIERT
+  ENTLASSEN
+}
+
+enum Pflegegrad {
+  PG1
+  PG2
+  PG3
+  PG4
+  PG5
+}
+
+enum Bewusstsein {
+  WACH
+  SCHLAEFRIG
+  SOMNOLENT
+  KOMATOEES
+}
+
+enum Beatmungsmodus {
+  CPAP
+  BIPAP
+  IPPV
+  ASB
+  SPONTAN
+}
+
+enum IncidentSeverity {
+  NIEDRIG
+  MITTEL
+  HOCH
+  KRITISCH
+}
+
+enum IncidentStatus {
+  OFFEN
+  IN_BEARBEITUNG
+  GESCHLOSSEN
+}
+
+enum MedicationRoute {
+  ORAL
+  INHALATIV
+  INTRAVENOES
+  SUBKUTAN
+  SONDE
+  TOPISCH
+}
+
 // ─── MODELS ──────────────────────────────────────────────────────────────────
 
 model User {
@@ -115,8 +166,9 @@ model Location {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  staff Staff[]
-  tasks Task[]
+  staff    Staff[]
+  tasks    Task[]
+  patients Patient[]
 
   @@map("locations")
 }
@@ -145,4 +197,107 @@ model Escalation {
   updatedAt   DateTime  @updatedAt
 
   @@map("escalations")
+}
+
+// ─── PHASE 2 ─────────────────────────────────────────────────────────────────
+
+model Patient {
+  id                 String        @id @default(cuid())
+  vorname            String
+  nachname           String
+  geburtsdatum       DateTime
+  diagnoseHaupt      String
+  beatmungspflichtig Boolean       @default(false)
+  tracheostoma       Boolean       @default(false)
+  tracheostomaTyp    String?
+  pflegegrad         Pflegegrad    @default(PG3)
+  kostentraeger      String?
+  notfallkontaktName String?
+  notfallkontaktTel  String?
+  adresse            String
+  locationId         String?
+  location           Location?     @relation(fields: [locationId], references: [id])
+  aufnahmedatum      DateTime      @default(now())
+  entlassdatum       DateTime?
+  status             PatientStatus @default(AKTIV)
+  bemerkungen        String?
+  createdAt          DateTime      @default(now())
+  updatedAt          DateTime      @updatedAt
+
+  carePlans   CarePlan[]
+  incidents   Incident[]
+  medications Medication[]
+
+  @@map("patients")
+}
+
+model CarePlan {
+  id                 String          @id @default(cuid())
+  patientId          String
+  patient            Patient         @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  titel              String
+  beschreibung       String?
+  beatmungsmodus     Beatmungsmodus?
+  atemzugvolumen     Int?
+  peep               Float?
+  fio2               Float?
+  atemfrequenzGeraet Int?
+  pflegeziele        String?
+  massnahmen         String?
+  besonderheiten     String?
+  gueltigAb          DateTime        @default(now())
+  gueltigBis         DateTime?
+  isActive           Boolean         @default(true)
+  createdById        String
+  createdAt          DateTime        @default(now())
+  updatedAt          DateTime        @updatedAt
+
+  @@map("care_plans")
+}
+
+model Incident {
+  id                  String           @id @default(cuid())
+  patientId           String
+  patient             Patient          @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  reportedById        String
+  titel               String
+  beschreibung        String
+  severity            IncidentSeverity @default(MITTEL)
+  status              IncidentStatus   @default(OFFEN)
+  geraetebeteiligt    Boolean          @default(false)
+  geraetBezeichnung   String?
+  massnahmenErgriffen String?
+  mdkMeldepflichtig   Boolean          @default(false)
+  mdkGemeldetAt       DateTime?
+  occurredAt          DateTime
+  resolvedAt          DateTime?
+  createdAt           DateTime         @default(now())
+  updatedAt           DateTime         @updatedAt
+
+  @@map("incidents")
+}
+
+model Medication {
+  id               String          @id @default(cuid())
+  patientId        String
+  patient          Patient         @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  prescribedById   String?
+  wirkstoff        String
+  handelsname      String?
+  staerke          String
+  darreichungsform String?
+  route            MedicationRoute @default(ORAL)
+  dosierung        String
+  haeufigkeit      String
+  isBtm            Boolean         @default(false)
+  btmNummer        String?
+  isInhalativum    Boolean         @default(false)
+  anweisung        String?
+  startDatum       DateTime        @default(now())
+  endDatum         DateTime?
+  isActive         Boolean         @default(true)
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
+
+  @@map("medications")
 }
