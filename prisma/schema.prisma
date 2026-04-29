@@ -126,12 +126,18 @@ model User {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  staff          Staff?
-  assignedTasks  TaskAssignment[]
-  activityLogs   ActivityLog[]
-  tokens         RefreshToken[]
-  payrollRecords PayrollRecord[]
-  shifts         Shift[]
+  staff            Staff?
+  assignedTasks    TaskAssignment[]
+  activityLogs     ActivityLog[]
+  tokens           RefreshToken[]
+  payrollRecords   PayrollRecord[]
+  shifts           Shift[]
+  trainingRecords  TrainingRecord[]
+  staffDocuments   StaffDocument[]
+  urlaubAntraege   UrlaubAntrag[]
+  krankmeldungen   Krankmeldung[]
+  qualifikationen  Qualifikation[]
+  personalAkte     PersonalAkte?
 
   @@map("users")
 }
@@ -599,4 +605,197 @@ model Shift {
   updatedAt   DateTime    @updatedAt
 
   @@map("shifts")
+}
+
+// ─── PHASE 8 ─────────────────────────────────────────────────────────────────
+
+enum TrainingStatus {
+  AUSSTEHEND
+  ABGESCHLOSSEN
+  ABGELAUFEN
+}
+
+enum ComplianceStatus {
+  KONFORM
+  FAELLIG
+  UEBERFAELLIG
+  NICHT_ANWENDBAR
+}
+
+enum RecruitmentStatus {
+  EINGEGANGEN
+  IN_PRUEFUNG
+  EINGELADEN
+  ABGELEHNT
+  EINGESTELLT
+}
+
+enum DocumentTyp {
+  FUEHRUNGSZEUGNIS
+  AUSBILDUNGSNACHWEIS
+  IMPFNACHWEIS
+  ARBEITSVERTRAG
+  QUALIFIKATION
+  SONSTIGES
+}
+
+model TrainingRecord {
+  id              String         @id @default(cuid())
+  userId          String
+  user            User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  bezeichnung     String
+  anbieter        String?
+  abgeschlossenAm DateTime?
+  gueltigBis      DateTime?
+  status          TrainingStatus @default(AUSSTEHEND)
+  pflichtschulung Boolean        @default(false)
+  zertifikatUrl   String?
+  bemerkungen     String?
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+
+  @@map("training_records")
+}
+
+model RecruitmentApplication {
+  id             String            @id @default(cuid())
+  vorname        String
+  nachname       String
+  email          String
+  telefon        String?
+  position       String
+  status         RecruitmentStatus @default(EINGEGANGEN)
+  bewerbungstext String?
+  cvUrl          String?
+  notizen        String?
+  eingestelltAm  DateTime?
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
+
+  @@map("recruitment_applications")
+}
+
+model ComplianceCheck {
+  id            String           @id @default(cuid())
+  bezeichnung   String
+  beschreibung  String?
+  status        ComplianceStatus @default(FAELLIG)
+  faelligAm     DateTime?
+  erledigtAm    DateTime?
+  erledigtVonId String?
+  mdkRelevant   Boolean          @default(true)
+  kategorie     String?
+  bemerkungen   String?
+  createdAt     DateTime         @default(now())
+  updatedAt     DateTime         @updatedAt
+
+  @@map("compliance_checks")
+}
+
+model StaffDocument {
+  id                String      @id @default(cuid())
+  userId            String
+  user              User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  typ               DocumentTyp
+  bezeichnung       String
+  ausstellungsdatum DateTime?
+  ablaufdatum       DateTime?
+  dokumentUrl       String?
+  verifiziert       Boolean     @default(false)
+  bemerkungen       String?
+  createdAt         DateTime    @default(now())
+  updatedAt         DateTime    @updatedAt
+
+  @@map("staff_documents")
+}
+
+// ─── PHASE 9b ────────────────────────────────────────────────────────────────
+
+enum UrlaubStatus {
+  BEANTRAGT
+  GENEHMIGT
+  ABGELEHNT
+  STORNIERT
+}
+
+enum KrankmeldungStatus {
+  AKTIV
+  BEENDET
+}
+
+enum QualifikationTyp {
+  BEATMUNGSPFLEGE
+  TRACHEOSTOMA
+  BTM_BERECHTIGUNG
+  WUNDVERSORGUNG
+  ERSTE_HILFE
+  HYGIENE
+  SONSTIGES
+}
+
+model UrlaubAntrag {
+  id             String       @id @default(cuid())
+  userId         String
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  vonDatum       DateTime
+  bisDatum       DateTime
+  tage           Int
+  status         UrlaubStatus @default(BEANTRAGT)
+  grund          String?
+  genehmigtvonId String?
+  genehmigAt     DateTime?
+  bemerkungen    String?
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  @@map("urlaub_antraege")
+}
+
+model Krankmeldung {
+  id          String             @id @default(cuid())
+  userId      String
+  user        User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  vonDatum    DateTime
+  bisDatum    DateTime?
+  status      KrankmeldungStatus @default(AKTIV)
+  diagnose    String?
+  attest      Boolean            @default(false)
+  bemerkungen String?
+  createdAt   DateTime           @default(now())
+  updatedAt   DateTime           @updatedAt
+
+  @@map("krankmeldungen")
+}
+
+model Qualifikation {
+  id          String           @id @default(cuid())
+  userId      String
+  user        User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  typ         QualifikationTyp
+  erworbenAm  DateTime?
+  gueltigBis  DateTime?
+  nachweisUrl String?
+  bestaetigt  Boolean          @default(false)
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+
+  @@map("qualifikationen")
+}
+
+model PersonalAkte {
+  id              String    @id @default(cuid())
+  userId          String    @unique
+  user            User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  eintrittsdatum  DateTime?
+  probezeitEnde   DateTime?
+  vertragTyp      String?
+  wochenstunden   Float?
+  urlaubstageJahr Int       @default(28)
+  resturlaub      Int       @default(0)
+  tarifgruppe     String?
+  notizen         String?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@map("personal_akte")
 }
