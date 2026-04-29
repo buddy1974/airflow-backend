@@ -30,6 +30,7 @@ import { pdlRoutes } from './routes/pdl';
 import { gmailRoutes } from './routes/gmail';
 import { calendarRoutes } from './routes/calendar';
 import { assistantRoutes } from './routes/assistant';
+import { seedUsers } from './scripts/seedUsers';
 import { seedLocation } from './scripts/seedLocation';
 import { seedPatients } from './scripts/seedPatients';
 import { seedDevices } from './scripts/seedDevices';
@@ -133,6 +134,7 @@ async function start() {
   try {
     await fastify.listen({ port, host });
     console.log('AIRFLOW BACKEND RUNNING ON PORT:', port);
+    await seedUsers();
     await seedLocation();
     await seedPatients();
     await seedDevices();
