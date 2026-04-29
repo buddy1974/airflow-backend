@@ -23,7 +23,30 @@ function fireN8nWebhook(payload: {
   }).catch((err) => console.error('[monitoring] n8n webhook failed:', err));
 }
 
-// ─── Zod schema ───────────────────────────────────────────────────────────────
+// ─── Zod schemas ──────────────────────────────────────────────────────────────
+
+const UpdateEntrySchema = z.object({
+  herzfrequenz:           z.number().int().positive().optional(),
+  atemfrequenz:           z.number().int().positive().optional(),
+  blutdruckSys:           z.number().int().positive().optional(),
+  blutdruckDia:           z.number().int().positive().optional(),
+  spo2:                   z.number().min(0).max(100).optional(),
+  temperatur:             z.number().optional(),
+  bewusstsein:            z.nativeEnum(Bewusstseinsstatus).optional(),
+  beatmungsmodus:         z.nativeEnum(Beatmungsmodus).optional(),
+  atemzugvolumen:         z.number().int().positive().nullable().optional(),
+  peep:                   z.number().positive().nullable().optional(),
+  fio2:                   z.number().min(0.21).max(1.0).nullable().optional(),
+  spitzendruck:           z.number().positive().nullable().optional(),
+  trachealSekret:         z.nativeEnum(TrachealSekret).nullable().optional(),
+  absaugungDurchgefuehrt: z.boolean().optional(),
+  cuffDruck:              z.number().positive().nullable().optional(),
+  lagerung:               z.nativeEnum(LagerungsTyp).optional(),
+  lagerungswechsel:       z.boolean().optional(),
+  ernaehrung:             z.string().nullable().optional(),
+  ausscheidung:           z.string().nullable().optional(),
+  bemerkungen:            z.string().nullable().optional(),
+});
 
 const CreateEntrySchema = z.object({
   patientId:              z.string().min(1),
@@ -236,6 +259,52 @@ export async function monitoringRoutes(fastify: FastifyInstance): Promise<void> 
         orderBy: { createdAt: 'desc' },
       });
       return reply.code(200).send({ success: true, alerts });
+    }
+  );
+
+  // PUT /api/monitoring/entry/:id
+  fastify.put<{ Params: { id: string } }>(
+    '/monitoring/entry/:id',
+    { preHandler: [authenticate, requireRole(['ADMIN', 'PFLEGEKRAFT'])] },
+    async (request: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) => {
+      const parsed = UpdateEntrySchema.safeParse(request.body);
+      if (!parsed.success) {
+        return reply.code(400).send({ success: false, error: 'Validation failed', details: parsed.error.flatten().fieldErrors });
+      }
+      try {
+        const data = parsed.data;
+        const entry = await prisma.monitoringEntry.update({
+          where: { id: request.params.id },
+          data,
+        });
+
+        // Re-run alert engine if vitals changed
+        if (data.spo2 != null || data.herzfrequenz != null || data.atemfrequenz != null ||
+            data.blutdruckSys != null || data.temperatur != null) {
+          const current = await prisma.monitoringEntry.findUnique({ where: { id: entry.id } });
+          if (current) {
+            const alertResult = checkAlerts({
+              spo2:         current.spo2,
+              herzfrequenz: current.herzfrequenz,
+              atemfrequenz: current.atemfrequenz,
+              blutdruckSys: current.blutdruckSys,
+              temperatur:   current.temperatur,
+              spitzendruck: current.spitzendruck,
+            });
+            await prisma.monitoringEntry.update({
+              where: { id: entry.id },
+              data:  { alertLevel: alertResult.alertLevel, alertTriggered: alertResult.alertTriggered },
+            });
+          }
+        }
+
+        return reply.code(200).send({ success: true, data: entry });
+      } catch (err: unknown) {
+        if ((err as { code?: string }).code === 'P2025') {
+          return reply.code(404).send({ success: false, error: 'Monitoring entry not found' });
+        }
+        throw err;
+      }
     }
   );
 

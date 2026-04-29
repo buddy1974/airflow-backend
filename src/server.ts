@@ -30,10 +30,15 @@ import { pdlRoutes } from './routes/pdl';
 import { gmailRoutes } from './routes/gmail';
 import { calendarRoutes } from './routes/calendar';
 import { assistantRoutes } from './routes/assistant';
+import { importRoutes } from './routes/import';
+import { aiLayerRoutes } from './routes/aiLayer';
+import { socialRoutes } from './routes/social';
+import { portalRoutes } from './routes/portal';
 import { seedUsers } from './scripts/seedUsers';
 import { seedLocation } from './scripts/seedLocation';
 import { seedPatients } from './scripts/seedPatients';
 import { seedDevices } from './scripts/seedDevices';
+import { seedDemoData } from './scripts/seedDemoData';
 
 import { FastifyRequest } from 'fastify';
 
@@ -117,6 +122,10 @@ export async function buildServer() {
   fastify.register(gmailRoutes,         { prefix: '/api' });
   fastify.register(calendarRoutes,      { prefix: '/api' });
   fastify.register(assistantRoutes,     { prefix: '/api' });
+  fastify.register(importRoutes,        { prefix: '/api' });
+  fastify.register(aiLayerRoutes,       { prefix: '/api' });
+  fastify.register(socialRoutes,        { prefix: '/api' });
+  fastify.register(portalRoutes,        { prefix: '/api' });
 
   fastify.setErrorHandler((error, _request, reply) => {
     fastify.log.error(error);
@@ -138,6 +147,7 @@ async function start() {
     await seedLocation();
     await seedPatients();
     await seedDevices();
+    await seedDemoData();
   } catch (err: any) {
     if (err.code === 'EADDRINUSE') {
       console.error(`PORT ${port} already in use`);

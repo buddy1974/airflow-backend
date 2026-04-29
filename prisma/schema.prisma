@@ -126,18 +126,19 @@ model User {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  staff            Staff?
-  assignedTasks    TaskAssignment[]
-  activityLogs     ActivityLog[]
-  tokens           RefreshToken[]
-  payrollRecords   PayrollRecord[]
-  shifts           Shift[]
-  trainingRecords  TrainingRecord[]
-  staffDocuments   StaffDocument[]
-  urlaubAntraege   UrlaubAntrag[]
-  krankmeldungen   Krankmeldung[]
-  qualifikationen  Qualifikation[]
-  personalAkte     PersonalAkte?
+  staff               Staff?
+  assignedTasks       TaskAssignment[]
+  activityLogs        ActivityLog[]
+  tokens              RefreshToken[]
+  payrollRecords      PayrollRecord[]
+  shifts              Shift[]
+  trainingRecords     TrainingRecord[]
+  staffDocuments      StaffDocument[]
+  urlaubAntraege      UrlaubAntrag[]
+  krankmeldungen      Krankmeldung[]
+  qualifikationen     Qualifikation[]
+  personalAkte        PersonalAkte?
+  angehoerigerAccess  AngehoerigerAccess[]
 
   @@map("users")
 }
@@ -266,15 +267,17 @@ model Patient {
   createdAt          DateTime      @default(now())
   updatedAt          DateTime      @updatedAt
 
-  carePlans         CarePlan[]
-  incidents         Incident[]
-  medications       Medication[]
-  monitoringEntries MonitoringEntry[]
-  monitoringAlerts  MonitoringAlert[]
-  devices           Device[]
-  handovers         Handover[]
-  invoices          Invoice[]
-  shifts            Shift[]
+  carePlans          CarePlan[]
+  incidents          Incident[]
+  medications        Medication[]
+  monitoringEntries  MonitoringEntry[]
+  monitoringAlerts   MonitoringAlert[]
+  devices            Device[]
+  handovers          Handover[]
+  invoices           Invoice[]
+  shifts             Shift[]
+  angehoerigerAccess AngehoerigerAccess[]
+  familyMessages     FamilyMessage[]
 
   @@map("patients")
 }
@@ -827,4 +830,55 @@ model GoogleToken {
   updatedAt    DateTime @updatedAt
 
   @@map("google_tokens")
+}
+
+// ─── PHASES 12–14 ────────────────────────────────────────────────────────────
+
+enum SocialPostStatus {
+  ENTWURF
+  GEPLANT
+  VEROEFFENTLICHT
+  FEHLGESCHLAGEN
+}
+
+model SocialPost {
+  id                String           @id @default(cuid())
+  titel             String
+  inhalt            String
+  bildUrl           String?
+  status            SocialPostStatus @default(ENTWURF)
+  geplantFuer       DateTime?
+  veroeffentlichtAm DateTime?
+  plattform         String           @default("Facebook")
+  createdById       String
+  createdAt         DateTime         @default(now())
+  updatedAt         DateTime         @updatedAt
+
+  @@map("social_posts")
+}
+
+model AngehoerigerAccess {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  patientId String
+  patient   Patient  @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+
+  @@unique([userId, patientId])
+  @@map("angehoerige_access")
+}
+
+model FamilyMessage {
+  id           String   @id @default(cuid())
+  patientId    String
+  patient      Patient  @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  vonUserId    String
+  nachricht    String
+  isFromFamily Boolean  @default(true)
+  gelesen      Boolean  @default(false)
+  createdAt    DateTime @default(now())
+
+  @@map("family_messages")
 }
