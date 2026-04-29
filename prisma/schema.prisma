@@ -799,3 +799,32 @@ model PersonalAkte {
 
   @@map("personal_akte")
 }
+
+// ─── PHASE 10 ────────────────────────────────────────────────────────────────
+
+model EmailLog {
+  id         String   @id @default(cuid())
+  gmailId    String?  @unique
+  from       String
+  to         String
+  subject    String
+  snippet    String?
+  isRead     Boolean  @default(false)
+  category   String?
+  receivedAt DateTime
+  createdAt  DateTime @default(now())
+
+  @@map("email_logs")
+}
+
+model GoogleToken {
+  id           String   @id @default(cuid())
+  userId       String   @unique
+  accessToken  String
+  refreshToken String?
+  expiresAt    DateTime
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@map("google_tokens")
+}

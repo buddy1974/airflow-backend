@@ -26,6 +26,10 @@ import { recruitmentRoutes } from './routes/recruitment';
 import { complianceRoutes } from './routes/compliance';
 import { staffDocumentRoutes } from './routes/staffDocuments';
 import { hrRoutes } from './routes/hr';
+import { pdlRoutes } from './routes/pdl';
+import { gmailRoutes } from './routes/gmail';
+import { calendarRoutes } from './routes/calendar';
+import { assistantRoutes } from './routes/assistant';
 import { seedLocation } from './scripts/seedLocation';
 import { seedPatients } from './scripts/seedPatients';
 import { seedDevices } from './scripts/seedDevices';
@@ -108,6 +112,10 @@ export async function buildServer() {
   fastify.register(complianceRoutes,    { prefix: '/api' });
   fastify.register(staffDocumentRoutes, { prefix: '/api' });
   fastify.register(hrRoutes,            { prefix: '/api' });
+  fastify.register(pdlRoutes,           { prefix: '/api' });
+  fastify.register(gmailRoutes,         { prefix: '/api' });
+  fastify.register(calendarRoutes,      { prefix: '/api' });
+  fastify.register(assistantRoutes,     { prefix: '/api' });
 
   fastify.setErrorHandler((error, _request, reply) => {
     fastify.log.error(error);
